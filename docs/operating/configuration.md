@@ -18,6 +18,7 @@ body_limits:           # Optional. Global body size ceilings.
 metrics:               # Optional. Prometheus metric collection toggles.
 runtime:               # Optional. Thread pool and logging tuning.
 shutdown_timeout_secs: # Optional. Shutdown budget (default: 30 seconds).
+shutdown_drain_delay_secs: # Optional. Readiness-first drain delay (default: 0).
 insecure_options:      # Optional. Dev/test overrides. See developing/getting-started.md.
 ```
 
@@ -768,9 +769,16 @@ shutdown:
 
 ```yaml
 shutdown_timeout_secs: 60    # default: 30
+shutdown_drain_delay_secs: 2 # optional readiness-first handoff delay
 ```
 
-On SIGTERM listeners stop accepting new connections.
+On SIGTERM listeners stop accepting new connections and immediately become
+unready. `shutdown_drain_delay_secs` keeps the process alive in that draining
+state before graceful connection shutdown begins, allowing load balancers to
+observe the readiness change and stop sending traffic. The delay must not
+exceed `shutdown_timeout_secs`; zero preserves the immediate handoff.
+
+Listeners stop accepting new connections.
 In-flight requests have a grace period of
 `min(shutdown_timeout_secs, 5)` seconds. Runtime shutdown
 then cancels remaining async tasks; the rest of the budget
