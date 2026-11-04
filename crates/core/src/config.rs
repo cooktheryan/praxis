@@ -24,6 +24,7 @@ mod cluster;
 mod condition;
 mod expanded_chains;
 mod filters;
+pub mod identity;
 mod hedge_policy;
 mod insecure_options;
 mod listener;
