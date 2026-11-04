@@ -241,6 +241,7 @@ impl HyperRuntime {
         };
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let graceful = self.shutdown_timeout;
+        let lifecycle = self.lifecycle.clone();
         info!(
             services = self.services.len(),
             threads = self.threads,
@@ -250,6 +251,7 @@ impl HyperRuntime {
         let (mode, aborted) = runtime.block_on(async move {
             let stop = make_stop();
             let mut services = ServiceSet::start(self.services, &shutdown_rx);
+            _ = lifecycle.mark_serving();
             let mode = services.serve_until(stop).await;
             (mode, services.stop(&shutdown_tx, mode.bound(graceful)).await)
         });

@@ -89,6 +89,7 @@ impl PingoraServerRuntime {
     /// [`run_with_shutdown`]: ServerRuntime::run_with_shutdown
     /// [`RunArgs`]: pingora_core::server::RunArgs
     pub fn run_with_args(self, args: RunArgs) {
+        _ = self.lifecycle.mark_serving();
         self.server.run(args);
     }
 }
