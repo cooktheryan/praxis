@@ -1011,6 +1011,11 @@ mod tests {
 
         let original_hash = composite_hash(VALID_YAML, &[]);
         let mut hash = original_hash;
+        let identity_store = praxis_protocol::http::health::new_config_identity_store();
+        identity_store.store(Some(Arc::new(praxis_core::config::ConfigIdentity::from_bytes(
+            VALID_YAML.as_bytes(),
+            &[],
+        ))));
 
         std::fs::write(&config_path, "this: is: not: valid: praxis: config\n").unwrap();
         let ok = handle_reload(
@@ -1022,6 +1027,7 @@ mod tests {
             &pipelines,
             &listener_meta,
             &cluster_meta,
+            &identity_store,
             &health_shutdown,
             &kv_stores,
             &session_stores,
@@ -1036,6 +1042,10 @@ mod tests {
             hash, original_hash,
             "a failed reload must leave the hash untouched, or the retry is skipped forever",
         );
+        assert!(
+            identity_store.load_full().is_some(),
+            "failed reload must preserve identity"
+        );
 
         std::fs::write(&config_path, VALID_YAML).unwrap();
         let recovered = handle_reload(
@@ -1047,6 +1057,7 @@ mod tests {
             &pipelines,
             &listener_meta,
             &cluster_meta,
+            &identity_store,
             &health_shutdown,
             &kv_stores,
             &session_stores,
@@ -1056,6 +1067,10 @@ mod tests {
             &PipelineComposition::default(),
         );
         assert!(recovered, "a subsequent valid config must reload");
+        assert!(
+            identity_store.load_full().is_some(),
+            "successful reload must publish identity"
+        );
     }
 
     #[test]
@@ -1104,6 +1119,7 @@ mod tests {
             &pipelines,
             &listener_meta,
             &cluster_meta,
+            &praxis_protocol::http::health::new_config_identity_store(),
             &health_shutdown,
             &kv_stores,
             &session_stores,
@@ -1199,6 +1215,7 @@ mod tests {
             cluster_meta: praxis_protocol::http::health::new_cluster_meta_store(
                 praxis_protocol::http::health::cluster_meta_from_config(&config),
             ),
+            config_identity: praxis_protocol::http::health::new_config_identity_store(),
             registry,
             shutdown: shutdown.clone(),
             subrequest_client: praxis_core::subrequest::SubRequestClient::new(crate::test_support::connector(8)),
@@ -1254,6 +1271,7 @@ mod tests {
             cluster_meta: praxis_protocol::http::health::new_cluster_meta_store(
                 praxis_protocol::http::health::cluster_meta_from_config(&config),
             ),
+            config_identity: praxis_protocol::http::health::new_config_identity_store(),
             registry: Arc::clone(&registry),
             shutdown: shutdown.clone(),
             subrequest_client: praxis_core::subrequest::SubRequestClient::new(crate::test_support::connector(8)),
@@ -1317,6 +1335,7 @@ mod tests {
             cluster_meta: praxis_protocol::http::health::new_cluster_meta_store(
                 praxis_protocol::http::health::cluster_meta_from_config(&config),
             ),
+            config_identity: praxis_protocol::http::health::new_config_identity_store(),
             registry: Arc::clone(&registry),
             shutdown: shutdown.clone(),
             subrequest_client: praxis_core::subrequest::SubRequestClient::new(crate::test_support::connector(8)),
@@ -1410,6 +1429,7 @@ mod tests {
             cluster_meta: praxis_protocol::http::health::new_cluster_meta_store(
                 praxis_protocol::http::health::cluster_meta_from_config(&config),
             ),
+            config_identity: praxis_protocol::http::health::new_config_identity_store(),
             registry,
             shutdown: shutdown.clone(),
             subrequest_client: praxis_core::subrequest::SubRequestClient::new(crate::test_support::connector(8)),
@@ -1485,6 +1505,7 @@ mod tests {
             cluster_meta: praxis_protocol::http::health::new_cluster_meta_store(
                 praxis_protocol::http::health::cluster_meta_from_config(&config),
             ),
+            config_identity: praxis_protocol::http::health::new_config_identity_store(),
             registry: Arc::clone(&registry),
             shutdown: shutdown.clone(),
             subrequest_client: praxis_core::subrequest::SubRequestClient::new(crate::test_support::connector(8)),
@@ -1562,6 +1583,7 @@ mod tests {
             cluster_meta: praxis_protocol::http::health::new_cluster_meta_store(
                 praxis_protocol::http::health::cluster_meta_from_config(&config),
             ),
+            config_identity: praxis_protocol::http::health::new_config_identity_store(),
             registry: Arc::clone(&registry),
             shutdown: shutdown.clone(),
             subrequest_client: praxis_core::subrequest::SubRequestClient::new(crate::test_support::connector(8)),
@@ -1638,6 +1660,7 @@ mod tests {
             cluster_meta: praxis_protocol::http::health::new_cluster_meta_store(
                 praxis_protocol::http::health::cluster_meta_from_config(&config),
             ),
+            config_identity: praxis_protocol::http::health::new_config_identity_store(),
             registry: Arc::clone(&registry),
             shutdown: shutdown.clone(),
             subrequest_client: praxis_core::subrequest::SubRequestClient::new(crate::test_support::connector(8)),
@@ -1807,6 +1830,7 @@ mod tests {
             cluster_meta: praxis_protocol::http::health::new_cluster_meta_store(
                 praxis_protocol::http::health::cluster_meta_from_config(&config),
             ),
+            config_identity: praxis_protocol::http::health::new_config_identity_store(),
             registry: Arc::clone(&registry),
             shutdown: shutdown.clone(),
             subrequest_client: praxis_core::subrequest::SubRequestClient::new(crate::test_support::connector(8)),
@@ -1899,6 +1923,7 @@ mod tests {
             &pipelines,
             &listener_meta,
             &cluster_meta,
+            &praxis_protocol::http::health::new_config_identity_store(),
             &Arc::new(Mutex::new(CancellationToken::new())),
             &kv_stores,
             &session_stores,
