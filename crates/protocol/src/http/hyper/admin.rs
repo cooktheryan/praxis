@@ -516,6 +516,7 @@ mod tests {
                 },
                 listener_meta: new_listener_meta_store(HashMap::new()),
                 cluster_meta: new_cluster_meta_store(HashMap::new()),
+                config_identity: None,
             }),
             ..AdminEndpointOptions::default()
         };

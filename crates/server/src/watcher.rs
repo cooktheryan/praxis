@@ -94,6 +94,9 @@ pub(crate) struct WatcherParams {
     /// Cluster metadata for admin `/api/stats`, swapped on reload.
     pub(crate) cluster_meta: praxis_protocol::http::health::ClusterMetaStore,
 
+    /// Published exact-byte identity of the active configuration.
+    pub(crate) config_identity: praxis_protocol::http::health::ConfigIdentityStore,
+
     /// Filter registry for building new pipelines.
     pub(crate) registry: Arc<FilterRegistry>,
 
@@ -213,6 +216,7 @@ async fn run_event_loop(rx: &mut mpsc::Receiver<()>, params: WatcherParams) {
         &params.pipelines,
         &params.listener_meta,
         &params.cluster_meta,
+        &params.config_identity,
         &params.health_shutdown,
         &params.kv_stores,
         &params.session_stores,
@@ -263,6 +267,7 @@ async fn run_event_loop(rx: &mut mpsc::Receiver<()>, params: WatcherParams) {
             &params.pipelines,
             &params.listener_meta,
             &params.cluster_meta,
+            &params.config_identity,
             &params.health_shutdown,
             &params.kv_stores,
             &params.session_stores,
@@ -318,6 +323,7 @@ fn handle_reload(
     pipelines: &ListenerPipelines,
     listener_meta: &praxis_protocol::http::health::ListenerMetaStore,
     cluster_meta: &praxis_protocol::http::health::ClusterMetaStore,
+    config_identity: &praxis_protocol::http::health::ConfigIdentityStore,
     health_shutdown: &Arc<Mutex<CancellationToken>>,
     kv_stores: &praxis_core::kv::KvStoreRegistry,
     session_stores: &Arc<praxis_filter::SessionStoreRegistry>,
@@ -367,6 +373,14 @@ fn handle_reload(
         },
     };
 
+    let documents: Vec<Vec<u8>> = referenced_files
+        .iter()
+        .filter_map(|path| std::fs::read(path).ok())
+        .collect();
+    let document_slices: Vec<&[u8]> = documents.iter().map(Vec::as_slice).collect();
+    let candidate_identity =
+        praxis_core::config::identity::ConfigIdentity::from_bytes(content.as_bytes(), &document_slices);
+
     match reload_pipelines(
         &new_config,
         current_config,
@@ -383,6 +397,7 @@ fn handle_reload(
         composition,
     ) {
         Ok(()) => {
+            config_identity.store(Some(Arc::new(candidate_identity)));
             *current_config = new_config;
             *content_hash = new_hash;
             praxis_protocol::http::metrics::record_config_reload_success();

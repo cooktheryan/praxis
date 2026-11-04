@@ -59,4 +59,4 @@ pub use service::{
 #[cfg(all(feature = "admin-api", feature = "hyper"))]
 pub(crate) use service::{PROMETHEUS_UPKEEP_INTERVAL, run_prometheus_upkeep};
 #[cfg(feature = "admin-api")]
-pub use stats_admin::{ProcessVersionInfo, StatsAdminState};
+pub use stats_admin::{ConfigIdentityStore, ProcessVersionInfo, StatsAdminState, new_config_identity_store};
