@@ -6,8 +6,11 @@
 use std::{
     pin::Pin,
     sync::{Mutex, PoisonError},
+    time::Duration,
 };
 
+#[cfg(unix)]
+use pingora_core::server::UnixShutdownSignalWatch;
 use pingora_core::server::{RunArgs, Server, ShutdownSignal, ShutdownSignalWatch, configuration::ServerConf};
 use tracing::info;
 
@@ -33,6 +36,9 @@ pub struct PingoraServerRuntime {
 
     /// Shared lifecycle state for management services and handlers.
     lifecycle: LifecycleHandle,
+
+    /// Readiness-first handoff delay before Pingora begins graceful shutdown.
+    shutdown_drain_delay: Duration,
 }
 
 impl std::fmt::Debug for PingoraServerRuntime {
@@ -52,6 +58,7 @@ impl PingoraServerRuntime {
         Self {
             server,
             lifecycle: LifecycleHandle::new(),
+            shutdown_drain_delay: Duration::from_secs(config.shutdown_drain_delay_secs),
         }
     }
 
@@ -91,6 +98,7 @@ impl PingoraServerRuntime {
     pub fn run_with_args(self, args: RunArgs) {
         _ = self.lifecycle.mark_serving();
         self.server.run(args);
+        self.lifecycle.mark_stopped();
     }
 }
 
@@ -105,7 +113,8 @@ impl ServerRuntime for PingoraServerRuntime {
     ///
     /// [`run`]: PingoraServerRuntime::run
     fn run_until_shutdown(self) {
-        self.run_with_args(RunArgs::default());
+        let args = self.delayed_run_args();
+        self.run_with_args(args);
     }
 
     fn run_with_shutdown(self, shutdown: ShutdownFuture) {
@@ -116,6 +125,72 @@ impl ServerRuntime for PingoraServerRuntime {
 
     fn lifecycle(&self) -> LifecycleHandle {
         self.lifecycle()
+    }
+}
+
+impl PingoraServerRuntime {
+    /// Build Pingora's signal arguments with readiness-first handoff.
+    #[cfg(unix)]
+    fn delayed_run_args(&self) -> RunArgs {
+        RunArgs {
+            shutdown_signal: Box::new(DelayedShutdownWatch {
+                delay: self.shutdown_drain_delay,
+                lifecycle: self.lifecycle.clone(),
+            }),
+        }
+    }
+
+    /// Build default arguments on platforms without Unix signals.
+    #[cfg(not(unix))]
+    fn delayed_run_args(&self) -> RunArgs {
+        RunArgs::default()
+    }
+}
+
+/// Pingora signal watcher that fails readiness before delayed graceful stop.
+#[cfg(unix)]
+struct DelayedShutdownWatch {
+    /// Delay before returning the graceful termination signal.
+    delay: Duration,
+
+    /// Lifecycle shared with readiness handlers.
+    lifecycle: LifecycleHandle,
+}
+
+#[cfg(unix)]
+impl ShutdownSignalWatch for DelayedShutdownWatch {
+    fn recv<'watch, 'fut>(&'watch self) -> Pin<Box<dyn Future<Output = ShutdownSignal> + Send + 'fut>>
+    where
+        'watch: 'fut,
+        Self: 'fut,
+    {
+        let delay = self.delay;
+        let lifecycle = self.lifecycle.clone();
+        Box::pin(async move {
+            match UnixShutdownSignalWatch.recv().await {
+                ShutdownSignal::GracefulTerminate => {
+                    _ = lifecycle.begin_drain();
+                    wait_for_pingora_drain_delay(delay).await
+                },
+                signal => signal,
+            }
+        })
+    }
+}
+
+/// Wait for the handoff delay while retaining Pingora's fast-stop signals.
+#[cfg(unix)]
+async fn wait_for_pingora_drain_delay(delay: Duration) -> ShutdownSignal {
+    let deadline = tokio::time::Instant::now() + delay;
+    loop {
+        tokio::select! {
+            () = tokio::time::sleep_until(deadline) => return ShutdownSignal::GracefulTerminate,
+            signal = UnixShutdownSignalWatch.recv() => match signal {
+                ShutdownSignal::FastShutdown => return ShutdownSignal::FastShutdown,
+                ShutdownSignal::GracefulUpgrade => return ShutdownSignal::GracefulUpgrade,
+                ShutdownSignal::GracefulTerminate => tracing::warn!("repeated SIGTERM received during shutdown drain delay; continuing"),
+            },
+        }
     }
 }
 
