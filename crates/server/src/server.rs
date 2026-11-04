@@ -672,12 +672,9 @@ fn watcher_params(
         .filter_map(|path| std::fs::read(path).ok())
         .collect();
     let document_slices: Vec<&[u8]> = documents.iter().map(Vec::as_slice).collect();
-    state
-        .config_identity
-        .store(Some(Arc::new(praxis_core::config::ConfigIdentity::from_bytes(
-            content.as_bytes(),
-            &document_slices,
-        ))));
+    let identity = praxis_core::config::ConfigIdentity::from_bytes(content.as_bytes(), &document_slices);
+    praxis_protocol::http::pingora::metrics::publish_config_identity(None, &identity);
+    state.config_identity.store(Some(Arc::new(identity)));
     Some(crate::watcher::WatcherParams {
         config_path: path,
         health_shutdown: state.health_shutdown,
@@ -742,6 +739,8 @@ fn register_admin_endpoints(
     }
 
     if let Some(prometheus_recorder) = prometheus_recorder {
+        let version = crate::version::process_version_info();
+        praxis_protocol::http::pingora::metrics::publish_build_info(&version.semver, version.git_sha.as_deref());
         admin::add_prometheus_upkeep(server, prometheus_recorder);
     }
 

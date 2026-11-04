@@ -22,6 +22,12 @@ shutdown_drain_delay_secs: # Optional. Readiness-first drain delay (default: 0).
 insecure_options:      # Optional. Dev/test overrides. See developing/getting-started.md.
 ```
 
+When a file-backed configuration is active, `/api/stats` reports its exact
+source identity under `config.hash`, along with `config.documents_hash` for
+referenced documents and the successful publication time. These values
+identify the loaded source bytes; they do not prove restart-only settings are
+effective until the process is restarted.
+
 ## Validating Configuration
 
 Use `--validate` (or `-t`) to check configuration

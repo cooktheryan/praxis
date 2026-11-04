@@ -397,6 +397,11 @@ fn handle_reload(
         composition,
     ) {
         Ok(()) => {
+            let previous_identity = config_identity.load_full();
+            praxis_protocol::http::pingora::metrics::publish_config_identity(
+                previous_identity.as_deref(),
+                &candidate_identity,
+            );
             config_identity.store(Some(Arc::new(candidate_identity)));
             *current_config = new_config;
             *content_hash = new_hash;
