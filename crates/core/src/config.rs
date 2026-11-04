@@ -25,6 +25,7 @@ mod condition;
 mod expanded_chains;
 mod filters;
 mod hedge_policy;
+pub mod identity;
 mod insecure_options;
 mod listener;
 mod logging;
@@ -55,6 +56,7 @@ pub use condition::{
 pub use expanded_chains::ExpandedFilterChains;
 pub use filters::{FailureMode, FilterChainConfig, FilterEntry};
 pub use hedge_policy::{HedgePolicy, MAX_HEDGE_ATTEMPTS};
+pub use identity::ConfigIdentity;
 pub use insecure_options::{InsecureFlag, InsecureOptions, SkipPipelineChecks};
 pub use listener::{Listener, ListenerTls, ProtocolKind};
 pub use logging::{DEFAULT_BUFFER_SIZE_LINES, LogOutput, LoggingConfig};

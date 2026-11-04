@@ -28,6 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Expose exact-byte configuration and build identities through `/api/stats`
+  and Prometheus info gauges, updating them only after a successful reload.
+
 - Add `shutdown_drain_delay_secs` for readiness-first SIGTERM handoff. The
   process becomes unready, waits for the configured delay, then begins
   graceful connection shutdown; HTTP/1 responses during the drain advertise
