@@ -24,7 +24,7 @@ use tokio::{
 };
 use tracing::{error, info, warn};
 
-use super::{RuntimeOptions, ServerRuntime, ShutdownFuture, resolve_thread_count};
+use super::{LifecycleHandle, RuntimeOptions, ServerRuntime, ShutdownFuture, resolve_thread_count};
 use crate::config::Config;
 
 // -----------------------------------------------------------------------------
@@ -98,6 +98,9 @@ pub struct HyperRuntime {
 
     /// Trust anchors loaded from `runtime.upstream_ca_file`.
     trust_anchors: Option<Arc<CachedCaCerts>>,
+
+    /// Shared lifecycle state for management services and handlers.
+    lifecycle: LifecycleHandle,
 }
 
 impl fmt::Debug for HyperRuntime {
@@ -140,6 +143,7 @@ impl HyperRuntime {
             shutdown_timeout: Duration::from_secs(config.shutdown_timeout_secs),
             threads,
             trust_anchors,
+            lifecycle: LifecycleHandle::new(),
         }
     }
 
@@ -246,8 +250,14 @@ impl HyperRuntime {
         let (mode, aborted) = runtime.block_on(async move {
             let stop = make_stop();
             let mut services = ServiceSet::start(self.services, &shutdown_rx);
+            if let Err(error) = self.lifecycle.mark_serving() {
+                warn!(%error, "lifecycle shutdown began before hyper startup completed");
+            }
             let mode = services.serve_until(stop).await;
-            (mode, services.stop(&shutdown_tx, mode.bound(graceful)).await)
+            self.lifecycle.begin_drain();
+            let result = services.stop(&shutdown_tx, mode.bound(graceful)).await;
+            self.lifecycle.mark_stopped();
+            (mode, result)
         });
 
         runtime.shutdown_timeout(RUNTIME_DROP_TIMEOUT);
@@ -272,6 +282,12 @@ impl HyperRuntime {
     pub fn trust_anchors(&self) -> Option<Arc<CachedCaCerts>> {
         self.trust_anchors.as_ref().map(Arc::clone)
     }
+
+    /// Return the lifecycle handle shared with registered protocol services.
+    #[must_use]
+    pub fn lifecycle(&self) -> LifecycleHandle {
+        self.lifecycle.clone()
+    }
 }
 
 impl ServerRuntime for HyperRuntime {
@@ -290,6 +306,10 @@ impl ServerRuntime for HyperRuntime {
     /// Stops fast once `shutdown` resolves, giving services a second.
     fn run_with_shutdown(self, shutdown: ShutdownFuture) {
         self.run(move || future_stop(shutdown));
+    }
+
+    fn lifecycle(&self) -> LifecycleHandle {
+        self.lifecycle()
     }
 }
 

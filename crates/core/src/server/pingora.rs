@@ -11,7 +11,7 @@ use std::{
 use pingora_core::server::{RunArgs, Server, ShutdownSignal, ShutdownSignalWatch, configuration::ServerConf};
 use tracing::info;
 
-use super::{RuntimeOptions, ServerRuntime, ShutdownFuture, resolve_thread_count};
+use super::{LifecycleHandle, RuntimeOptions, ServerRuntime, ShutdownFuture, resolve_thread_count};
 use crate::config::Config;
 
 // -----------------------------------------------------------------------------
@@ -30,6 +30,9 @@ const SHUTDOWN_GRACE_CAP_SECS: u64 = 5; // 5 s pre-drain grace before runtime sh
 pub struct PingoraServerRuntime {
     /// The underlying Pingora server instance.
     server: Server,
+
+    /// Shared lifecycle state for management services and handlers.
+    lifecycle: LifecycleHandle,
 }
 
 impl std::fmt::Debug for PingoraServerRuntime {
@@ -46,12 +49,21 @@ impl PingoraServerRuntime {
     pub fn new(config: &Config) -> Self {
         let opts = RuntimeOptions::from(&config.runtime);
         let server = build_http_server(config.shutdown_timeout_secs, &opts);
-        Self { server }
+        Self {
+            server,
+            lifecycle: LifecycleHandle::new(),
+        }
     }
 
     /// Access the inner Pingora server for service registration.
     pub fn server_mut(&mut self) -> &mut Server {
         &mut self.server
+    }
+
+    /// Return the lifecycle handle shared with registered protocol services.
+    #[must_use]
+    pub fn lifecycle(&self) -> LifecycleHandle {
+        self.lifecycle.clone()
     }
 
     /// Start all registered services. Blocks forever.
@@ -77,7 +89,10 @@ impl PingoraServerRuntime {
     /// [`run_with_shutdown`]: ServerRuntime::run_with_shutdown
     /// [`RunArgs`]: pingora_core::server::RunArgs
     pub fn run_with_args(self, args: RunArgs) {
+        let lifecycle = self.lifecycle.clone();
+        _ = lifecycle.mark_serving();
         self.server.run(args);
+        lifecycle.mark_stopped();
     }
 }
 
@@ -96,9 +111,14 @@ impl ServerRuntime for PingoraServerRuntime {
     }
 
     fn run_with_shutdown(self, shutdown: ShutdownFuture) {
+        let lifecycle = self.lifecycle.clone();
         self.run_with_args(RunArgs {
-            shutdown_signal: Box::new(FutureShutdown::new(shutdown)),
+            shutdown_signal: Box::new(FutureShutdown::new(shutdown, lifecycle)),
         });
+    }
+
+    fn lifecycle(&self) -> LifecycleHandle {
+        self.lifecycle()
     }
 }
 
@@ -145,13 +165,17 @@ pub fn build_http_server(shutdown_timeout_secs: u64, runtime: &RuntimeOptions) -
 struct FutureShutdown {
     /// The future to wait on, taken by the first `recv` call.
     shutdown: Mutex<Option<ShutdownFuture>>,
+
+    /// Shared lifecycle state to transition when the harness requests stop.
+    lifecycle: LifecycleHandle,
 }
 
 impl FutureShutdown {
     /// Wrap `shutdown` for Pingora.
-    fn new(shutdown: ShutdownFuture) -> Self {
+    fn new(shutdown: ShutdownFuture, lifecycle: LifecycleHandle) -> Self {
         Self {
             shutdown: Mutex::new(Some(shutdown)),
+            lifecycle,
         }
     }
 }
@@ -163,10 +187,12 @@ impl ShutdownSignalWatch for FutureShutdown {
         Self: 'fut,
     {
         let pending = self.shutdown.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let lifecycle = self.lifecycle.clone();
         Box::pin(async move {
             if let Some(shutdown) = pending {
                 shutdown.await;
             }
+            lifecycle.begin_drain();
             ShutdownSignal::FastShutdown
         })
     }

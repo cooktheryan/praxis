@@ -3,7 +3,7 @@
 
 //! The stand-in runtime for a build with no network backend.
 
-use super::{ServerRuntime, ShutdownFuture};
+use super::{LifecycleHandle, ServerRuntime, ShutdownFuture};
 use crate::config::Config;
 
 /// Runtime for a build that carries no network backend.
@@ -11,13 +11,23 @@ use crate::config::Config;
 /// It exists so the library crates compile and type-check without a backend;
 /// there are no protocol adapters to register onto it, and running it logs
 /// that nothing can be served and returns at once.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct UnavailableRuntime;
+#[derive(Clone, Debug)]
+pub struct UnavailableRuntime {
+    lifecycle: LifecycleHandle,
+}
+
+impl Default for UnavailableRuntime {
+    fn default() -> Self {
+        Self {
+            lifecycle: LifecycleHandle::new(),
+        }
+    }
+}
 
 impl ServerRuntime for UnavailableRuntime {
     fn from_config(config: &Config) -> Self {
         _ = config;
-        Self
+        Self::default()
     }
 
     fn run_until_shutdown(self) {
@@ -27,5 +37,10 @@ impl ServerRuntime for UnavailableRuntime {
     fn run_with_shutdown(self, shutdown: ShutdownFuture) {
         drop(shutdown);
         tracing::error!("no network backend is compiled into this build; nothing to serve");
+        self.lifecycle.mark_stopped();
+    }
+
+    fn lifecycle(&self) -> LifecycleHandle {
+        self.lifecycle.clone()
     }
 }
