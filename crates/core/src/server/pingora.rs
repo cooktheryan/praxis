@@ -400,26 +400,27 @@ mod tests {
         assert_eq!(lifecycle.phase(), LifecyclePhase::Stopped, "terminated Pingora must stop the lifecycle");
 
         for phase in [ExecutionPhase::GracefulTerminate, ExecutionPhase::ShutdownStarted] {
-            let lifecycle = LifecycleHandle::new();
-            let (sender, receiver) = tokio::sync::broadcast::channel(8);
-            let monitor = monitor_lifecycle(receiver, lifecycle.clone());
-            sender.send(phase).unwrap();
-            wait_for_phase(&lifecycle, LifecyclePhase::Draining);
-            sender.send(ExecutionPhase::Terminated).unwrap();
-            drop(sender);
-            monitor.join().unwrap();
-            assert_eq!(lifecycle.phase(), LifecyclePhase::Stopped, "Pingora shutdown must stop the lifecycle");
+            let phase_lifecycle = LifecycleHandle::new();
+            let (phase_sender, phase_receiver) = tokio::sync::broadcast::channel(8);
+            let phase_monitor = monitor_lifecycle(phase_receiver, phase_lifecycle.clone());
+            phase_sender.send(phase).unwrap();
+            wait_for_phase(&phase_lifecycle, LifecyclePhase::Draining);
+            phase_sender.send(ExecutionPhase::Terminated).unwrap();
+            drop(phase_sender);
+            phase_monitor.join().unwrap();
+            assert_eq!(phase_lifecycle.phase(), LifecyclePhase::Stopped, "Pingora shutdown must stop the lifecycle");
         }
 
-        let lifecycle = LifecycleHandle::new();
-        let (sender, receiver) = tokio::sync::broadcast::channel(8);
-        let monitor = monitor_lifecycle(receiver, lifecycle.clone());
-        drop(sender);
-        monitor.join().unwrap();
-        assert_eq!(lifecycle.phase(), LifecyclePhase::Stopped, "a closed Pingora phase stream must stop the lifecycle");
+        let closed_lifecycle = LifecycleHandle::new();
+        let (closed_sender, closed_receiver) = tokio::sync::broadcast::channel(8);
+        let closed_monitor = monitor_lifecycle(closed_receiver, closed_lifecycle.clone());
+        drop(closed_sender);
+        closed_monitor.join().unwrap();
+        assert_eq!(closed_lifecycle.phase(), LifecyclePhase::Stopped, "a closed Pingora phase stream must stop the lifecycle");
     }
 
     /// Wait for the monitor thread to publish `expected` without racing it.
+    #[expect(clippy::disallowed_methods, reason = "test polls a background monitor")]
     fn wait_for_phase(lifecycle: &LifecycleHandle, expected: LifecyclePhase) {
         for _ in 0..100 {
             if lifecycle.phase() == expected {
