@@ -53,6 +53,9 @@ pub mod kv;
 pub mod listener;
 /// Prometheus metrics: recorder, HTTP request counters, and scrape endpoint.
 pub mod metrics;
+/// Bounded cleanup of unread HTTP/1 uploads after local responses.
+#[cfg(feature = "pingora")]
+mod rejection_cleanup;
 
 // -----------------------------------------------------------------------------
 // PingoraHttp
@@ -87,12 +90,19 @@ impl Protocol for PingoraHttp {
         }
 
         let mut cert_watcher_shutdowns = Vec::new();
+        let lifecycle = server.lifecycle();
         for listener in &http_listeners {
             let pipeline = pipelines.get(&listener.name).map(Arc::clone).ok_or_else(|| {
                 ProxyError::Config(format!("no pipeline for listener '{name}'", name = listener.name))
             })?;
 
-            handler::load_http_handler(server.server_mut(), listener, pipeline, &mut cert_watcher_shutdowns)?;
+            handler::load_http_handler_with_lifecycle(
+                server.server_mut(),
+                listener,
+                pipeline,
+                &mut cert_watcher_shutdowns,
+                lifecycle.clone(),
+            )?;
         }
 
         Ok(cert_watcher_shutdowns)
@@ -137,6 +147,7 @@ mod tests {
             listeners,
             metrics: MetricsConfig::default(),
             runtime: RuntimeConfig::default(),
+            shutdown_drain_delay_secs: 0,
             shutdown_timeout_secs: 30,
             telemetry: TelemetryConfig::default(),
         }
@@ -152,6 +163,7 @@ mod tests {
             downstream_keepalive_timeout_ms: None,
             downstream_read_timeout_ms: None,
             filter_chains: vec![],
+            forward_proxy: None,
             max_connections: None,
             tcp_max_duration_secs: None,
             tcp_session_timeout_ms: None,

@@ -463,6 +463,7 @@ fn build_config(address: &str, clusters: Vec<Cluster>, filters: Vec<FilterEntry>
             downstream_keepalive_timeout_ms: None,
             downstream_read_timeout_ms: None,
             filter_chains: vec!["backend".to_owned()],
+            forward_proxy: None,
             max_connections: None,
             name: "backend".to_owned(),
             protocol: ProtocolKind::default(),
@@ -473,6 +474,7 @@ fn build_config(address: &str, clusters: Vec<Cluster>, filters: Vec<FilterEntry>
         }],
         metrics: MetricsConfig::default(),
         runtime: RuntimeConfig::default(),
+        shutdown_drain_delay_secs: 0,
         shutdown_timeout_secs: 5,
         telemetry: TelemetryConfig::default(),
     }

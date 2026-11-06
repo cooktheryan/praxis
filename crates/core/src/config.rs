@@ -24,7 +24,9 @@ mod cluster;
 mod condition;
 mod expanded_chains;
 mod filters;
+mod forward_proxy;
 mod hedge_policy;
+pub mod identity;
 mod insecure_options;
 mod listener;
 mod logging;
@@ -36,8 +38,11 @@ pub mod runtime;
 mod telemetry;
 mod validate;
 
-pub use admin::AdminConfig;
-pub use body_limits::{ABSOLUTE_MAX_BODY_BYTES, BodyLimitsConfig, DEFAULT_MAX_BODY_BYTES};
+pub use admin::{AdminConfig, ReadinessMode};
+pub use body_limits::{
+    ABSOLUTE_MAX_BODY_BYTES, BodyLimitsConfig, BufferLimit, DEFAULT_MAX_BODY_BYTES, DEFAULT_MAX_BUFFER_BYTES,
+    MAX_BUFFER_BYTES,
+};
 pub use bootstrap::{ConfigFile, DEFAULT_CONFIG, load_config};
 pub use branch_chain::{BranchChainConfig, BranchCondition, ResultMatch};
 pub use chain_ref::ChainRef;
@@ -54,7 +59,9 @@ pub use condition::{
 };
 pub use expanded_chains::ExpandedFilterChains;
 pub use filters::{FailureMode, FilterChainConfig, FilterEntry};
+pub use forward_proxy::{DestinationRule, ForwardProxyConfig};
 pub use hedge_policy::{HedgePolicy, MAX_HEDGE_ATTEMPTS};
+pub use identity::ConfigIdentity;
 pub use insecure_options::{InsecureFlag, InsecureOptions, SkipPipelineChecks};
 pub use listener::{Listener, ListenerTls, ProtocolKind};
 pub use logging::{DEFAULT_BUFFER_SIZE_LINES, LogOutput, LoggingConfig};
@@ -133,7 +140,11 @@ pub struct Config {
     #[serde(default)]
     pub runtime: RuntimeConfig,
 
-    /// Drain time for graceful shutdown.
+    /// Delay after shutdown begins before graceful connection shutdown.
+    #[serde(default)]
+    pub shutdown_drain_delay_secs: u64,
+
+    /// Upper bound on the duration of a graceful shutdown.
     #[serde(default = "default_shutdown_timeout_secs")]
     pub shutdown_timeout_secs: u64,
 
@@ -335,6 +346,10 @@ mod tests {
     #[test]
     fn default_shutdown_timeout_is_30() {
         let config = Config::from_yaml(VALID_YAML).unwrap();
+        assert_eq!(
+            config.shutdown_drain_delay_secs, 0,
+            "drain delay should default to zero"
+        );
         assert_eq!(
             config.shutdown_timeout_secs, 30,
             "default shutdown timeout should be 30s"
@@ -757,6 +772,10 @@ filter_chains:
         assert_eq!(
             roundtripped.shutdown_timeout_secs, original.shutdown_timeout_secs,
             "shutdown_timeout_secs should survive roundtrip"
+        );
+        assert_eq!(
+            roundtripped.shutdown_drain_delay_secs, original.shutdown_drain_delay_secs,
+            "shutdown_drain_delay_secs should survive roundtrip"
         );
     }
 
